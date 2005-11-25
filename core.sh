@@ -41,34 +41,33 @@ foo () {
 }
 
 
-whattype () {
-    ### return the type of the given data
-    local t
-    case $1 in
-        __bdsm_data_*)
-            t=${1#__bdsm_data_}
-            t=${t%%_*}
-            #XXX - return as string data
-            ;;
-        *)
-            return 1
-}
-
 alloc () {
     local valtype=$1
     local value=$2
-    set -- ${__bdsm_index}
-    local n=$1
-    if (( n >= __bdsm_maxindex )); then
-        set -- 0 "$@"
-    else
-        shift
-        set -- $((n+1)) "$@"
+
+    #increment the index, which is a *list* of numbers.
+    #we increment with overflow.
+    local incr=1
+    local newindex=''
+    for i in ${__bdsm_index}; do
+        if (( incr > 0 )); then
+            if (( i < __bdsm_maxindex )); then
+                (( i=i+incr ))
+                incr=0
+            else
+                i=0
+            fi
+        fi
+        newindex="$newindex $i"
+    done
+    if ((incr > 0)); then
+        newindex="$newindex 0"
     fi
-    __bdsm_index=$*
+
+    __bdsm_index=$newindex
     REPLY=__bdsm_data_$valtype
-    for n; do
-        REPLY="${REPLY}_$n"
+    for i in ${__bdsm_index}; do
+        REPLY="${REPLY}_$i"
     done
     eval "$REPLY=\$value"
 }
@@ -82,6 +81,22 @@ str () {
 int () {
     ### return a new int object
     alloc int "$1"
+}
+
+whattype () {
+    ### return the type of the given data
+    local t
+    case $1 in
+        __bdsm_data_*)
+            t=${1#__bdsm_data_}
+            t=${t%%_*}
+            alloc str "$t"
+            return
+            ;;
+        *)
+            return 1
+            ;;
+    esac
 }
 
 
