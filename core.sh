@@ -91,7 +91,7 @@ callmethod () {
                 unset -v REPLY
                 return 1
             fi
-            $func "$self" "$@"
+            eval "$func \"\$@\""
             return
         fi
         #else try parent
@@ -127,33 +127,31 @@ new () {
     alloc
     local self=$REPLY
     eval "${self}_class=\$class"
-    callmethod "$self" init "$@"
+    if callmethod "$self" init "$@"; then
+        #if call succeeds return object
+        REPLY=$self
+    fi
+    #(otherwise we return whatever callmethod returned)
 }
 
 
 ## class object
-setmethod object getattr "getattr"
-setmethod object setattr "setattr"
+setmethod object getattr 'getattr $self'
+setmethod object setattr 'setattr $self'
 setmethod object init ":"
 
 ## class string
-string_init () {
-    #self=$1
-    #value=$2
-    setattr "$1" value "$2"
-    REPLY=$1
-}
-string_value () {
-    #self=$1
-    getattr "$1" value
-}
 setparent string object
-setmethod string init "string_init"
-setmethod string value "string_value"
-
+setmethod string init 'setattr $self value'
+setmethod string value 'getattr $self value'
+string_print () {
+    getattr $self value
+    printf '%s\n' "$REPLY"
+}
+setmethod string print 'string_print'
 
 #demo
 new string "This is a test"
 x=$REPLY
-callmethod "$x" value
-echo $REPLY
+callmethod "$x" print
+#echo $REPLY
