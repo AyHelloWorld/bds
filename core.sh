@@ -8,6 +8,9 @@ assign () {
     eval "$1=\$2"
 }
 
+assigned () {
+    eval "[ -n \"\${$1+x}\" ]"
+}
 
 # Methodology
 #   data structures are stored in carefully named global variables
@@ -56,111 +59,101 @@ alloc () {
     done
 }
 
-
-object () {
-    local loc=$1
-    local cmd=$2
-    shift
-    shift
-    case $cmd in
-        class)
-            # XXX - use ${!var} expansion?
-            eval "REPLY=\$${loc}_class"
-            return
-            ;;
-        new)
-            alloc
-            eval "${REPLY}_class=object"
-            return
-            ;;
-        getattr)
-            #attr name in $1
-            eval "REPLY=\$${loc}_attr_$1"
-            return
-            ;;
-        setattr)
-            #value in $1
-            eval "${loc}_attr_$1=\$1"
-            unset -v REPLY
-            return
-            ;;
-    esac
-}
-
-
 getclass () {
-    ### return the class of the given object
-    object "$1" class
+    eval "REPLY=\$${1}_class"
 }
 
 getattr () {
-    ### return the value of the attribute for an object
-    object "$1" class
-    #RETURN holds the name of the class function
-    "$RETURN" "$1" getattr "$2"
+    eval "REPLY=\$${1}_attr_$2"
 }
 
 setattr () {
-    ### set the attribute value for an object
-    object "$1" class
-    #RETURN holds the name of the class function
-    "$RETURN" "$1" setattr "$2"
+    eval "${1}_attr_$2=\$3"
+    unset -v REPLY
 }
 
-native () {
-    ### native class (for bash native scalars)
-    local loc=$1
-    local cmd=$2
-    local parent=object
+callmethod () {
+    local self=$1
+    local method=$2
     shift
     shift
-    case $cmd in
-        new)
-            alloc
-            eval "${REPLY}_class=native"
-            eval "${REPLY}=\$1"
+    # read class
+    local class
+    eval "class=\$${self}_class"
+    # search inheritance chain for method
+    local var func
+    while true; do
+        var=__bdsm_class_${class}_method_${method}
+        if assigned $var; then
+            eval "func=\$$var"
+            if [ -z "$func" ]; then
+                echo 1>&2 "Error: Method disabled: $method (object $self)"
+                unset -v REPLY
+                return 1
+            fi
+            $func "$self" "$@"
             return
-            ;;
-        set)
-            eval "${loc}=\$1"
+        fi
+        #else try parent
+        var=__bdsm_class_${class}_parent
+        if ! assigned $var; then
+            echo 1>&2 "Error: Method not implemented: $method (object $self)"
             unset -v REPLY
-            return
-            ;;
-        value)
-            eval "REPLY=\$${loc}"
-            return
-            ;;
-        *)
-            #defer to parent
-            $parent $loc $cmd "$@"
-            return
-            ;;
-    esac
+            return 1
+        fi
+        eval "class=\$$var"
+        continue
+    done
 }
 
-string () {
-    ### string class
-    local loc=$1
-    local cmd=$2
-    local parent=native
+setmethod () {
+    #class=$1
+    #method=$2
+    #expression=$3
+    eval "__bdsm_class_${1}_method_${2}=\$3"
+    unset -v REPLY
+}
+
+setparent () {
+    #class=$1
+    #parent=$2
+    eval "__bdsm_class_${1}_parent=\$2"
+    unset -v REPLY
+}
+
+new () {
+    local class=$1
     shift
-    shift
-    case $cmd in
-        new)
-            alloc
-            eval "${REPLY}_class=native"
-            #initialize value from $1
-            eval "${REPLY}=\$1"
-            return
-            ;;
-        *)
-            #defer to parent
-            $parent $loc $cmd "$@"
-            return
-            ;;
-    esac
+    alloc
+    local self=$REPLY
+    eval "${self}_class=\$class"
+    callmethod "$self" init "$@"
 }
 
 
+## class object
+setmethod object getattr "getattr"
+setmethod object setattr "setattr"
+setmethod object init ":"
+
+## class string
+string_init () {
+    #self=$1
+    #value=$2
+    setattr "$1" value "$2"
+    REPLY=$1
+}
+string_value () {
+    #self=$1
+    getattr "$1" value
+}
+setparent string object
+setmethod string init "string_init"
+setmethod string value "string_value"
 
 
+#demo
+new string "This is a test"
+x=$REPLY
+callmethod "$x" value
+echo $REPLY
