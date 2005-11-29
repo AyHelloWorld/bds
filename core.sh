@@ -4,12 +4,33 @@
 
 # Written by Mike McLean (mikem.rtp@gmail.com)
 
+
+#
+# Some generic functions to facilitate indirect references
+#
+
 assign () {
     eval "$1=\$2"
 }
 
+copyvar () {
+    eval "$2=\${$1}"
+}
+
+assign_array () {
+    #by using the volatile global REPLY, we avoid name collisions
+    REPLY=$1
+    shift
+    eval "$REPLY"='("$@")'
+}
+
+copyvar_array () {
+    eval "$2=(\"\${$1[@]}\")"
+}
+
 assigned () {
-    eval "[ -n \"\${$1+x}\" ]"
+    #eval "[ -n \"\${$1+x}\" ]"
+    [ -n "${!1+x}" ]
 }
 
 # Methodology
@@ -60,11 +81,13 @@ alloc () {
 }
 
 getclass () {
-    eval "REPLY=\$${1}_class"
+    local var="${1}_class"
+    REPLY=${!var}
 }
 
 getattr () {
-    eval "REPLY=\$${1}_attr_$2"
+    local var="${1}_attr_$2"
+    REPLY=${!var}
 }
 
 setattr () {
@@ -72,37 +95,36 @@ setattr () {
     unset -v REPLY
 }
 
-callmethod () {
+callobject () {
     local self=$1
-    local method=$2
+    local methodname=$2
     shift
     shift
     # read class
-    local class
-    eval "class=\$${self}_class"
+    local _temp_varname="${self}_class"
+    local _temp_funcname=''
+    classname=${!_temp_varname}
     # search inheritance chain for method
-    local var func
     while true; do
-        var=__bdsm_class_${class}_method_${method}
-        if assigned $var; then
-            eval "func=\$$var"
-            if [ -z "$func" ]; then
-                echo 1>&2 "Error: Method disabled: $method (object $self)"
+        _temp_varname=__bdsm_class_${classname}_method_${methodname}
+        if assigned $_temp_varname; then
+            _temp_funcname=${!_temp_varname}
+            if [ -z "$_temp_funcname" ]; then
+                echo 1>&2 "Error: Method disabled: $methodname (object $self)"
                 unset -v REPLY
                 return 1
             fi
-            eval "$func \"\$@\""
+            eval "$_temp_funcname \"\$@\""
             return
         fi
         #else try parent
-        var=__bdsm_class_${class}_parent
-        if ! assigned $var; then
-            echo 1>&2 "Error: Method not implemented: $method (object $self)"
+        _temp_varname=__bdsm_class_${class}_parent
+        if ! assigned $_temp_varname; then
+            echo 1>&2 "Error: Method not implemented: $methodname (object $self)"
             unset -v REPLY
             return 1
         fi
-        eval "class=\$$var"
-        continue
+        classname=${!_temp_varname}
     done
 }
 
@@ -127,11 +149,14 @@ new () {
     alloc
     local self=$REPLY
     eval "${self}_class=\$class"
-    if callmethod "$self" init "$@"; then
+    if callobject "$self" init "$@"; then
         #if call succeeds return object
-        REPLY=$self
+        REPLY="callobject $self"
+        #the idea here is that the return value can be used
+        #like a command with the methodname as the first arg
+        #see examples later
     fi
-    #(otherwise we return whatever callmethod returned)
+    #(otherwise we let callobject's return propagate)
 }
 
 
@@ -150,8 +175,35 @@ string_print () {
 }
 setmethod string print 'string_print'
 
+## class list
+# (bash arrays with a few minor enhancements)
+# hmm, need to do more performance testing:
+#   bash arrays vs dynamic names with embedded indices
+setparent list object
+list_init () {
+    #value is a bash array
+    eval "${self}_attr_value"='("$@")'
+}
+list_value () {
+    eval REPLY="(\"\${${self}_attr_value[@]}\")"
+}
+list_repr () {
+    eval "declare -p ${self}_attr_value"
+}
+setmethod list init 'list_init'
+setmethod list value 'list_value'
+setmethod list repr 'list_repr'
+
+
 #demo
 new string "This is a test"
 x=$REPLY
-callmethod "$x" print
+$x print
 #echo $REPLY
+
+
+new list "one (or 1)" "two (or 2)" "three (or 3)"
+y=$REPLY
+$y repr
+
+
