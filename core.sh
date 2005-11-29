@@ -183,6 +183,51 @@ setparent list object
 list_init () {
     #value is a bash array
     eval "${self}_attr_value"='("$@")'
+    eval "${self}_attr_origin=0"
+    eval "${self}_attr_end=$#"
+}
+list_length () {
+    local var_a="${self}_attr_origin"
+    local var_b="${self}_attr_end"
+    (( REPLY=${!var_b}-${!var_a} ))
+}
+list_append () {
+    local var_end="${self}_attr_end"
+    local end=${!var_end}
+    eval "${self}_attr_value[$end]=\$1"
+    ((end=end+1))
+    eval "$var_end=\$end"
+    unset -v REPLY
+}
+list_pop () {
+    local var_origin="${self}_attr_origin"
+    local origin=${!var_origin}
+    local var_end="${self}_attr_end"
+    local end=${!var_end}
+    if ! ((origin < end)); then
+        unset -v REPLY
+        return 1
+    fi
+    ((end=end-1))
+    eval "REPLY=\${${self}_attr_value[$end]}"
+    #XXX, do I need the eval on the unset?
+    eval "unset -v ${self}_attr_value[$end]"
+    eval "$var_end=\$end"
+}
+list_shift () {
+    local var_origin="${self}_attr_origin"
+    local origin=${!var_origin}
+    local var_end="${self}_attr_end"
+    local end=${!var_end}
+    if ! ((origin < end)); then
+        unset -v REPLY
+        return 1
+    fi
+    eval "REPLY=\${${self}_attr_value[$origin]}"
+    #XXX, do I need the eval on the unset?
+    eval "unset -v ${self}_attr_value[$origin]"
+    ((origin=origin+1))
+    eval "$var_origin=\$origin"
 }
 list_value () {
     eval REPLY="(\"\${${self}_attr_value[@]}\")"
@@ -191,6 +236,10 @@ list_repr () {
     eval "declare -p ${self}_attr_value"
 }
 setmethod list init 'list_init'
+setmethod list length 'list_length'
+setmethod list append 'list_append'
+setmethod list pop 'list_pop'
+setmethod list shift 'list_shift'
 setmethod list value 'list_value'
 setmethod list repr 'list_repr'
 
