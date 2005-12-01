@@ -58,6 +58,7 @@ alloc () {
     #we increment with overflow.
     local incr=1
     local newindex=''
+    local i
     for i in ${__bdsm_index}; do
         if (( incr > 0 )); then
             if (( i < __bdsm_maxindex )); then
@@ -229,8 +230,93 @@ list_shift () {
     ((origin=origin+1))
     eval "$var_origin=\$origin"
 }
+list_get_single () {
+    local var_origin="${self}_attr_origin"
+    local origin=${!var_origin}
+    local var_end="${self}_attr_end"
+    local end=${!var_end}
+    local ofs=$1
+    if (( ofs < 0 )); then
+        (( ofs = ofs + end - origin ))
+    else
+        (( ofs=ofs+origin))
+    fi
+    if (( ofs < end )) && (( ofs >= origin )); then
+        # valid offset
+        eval "REPLY=\${${self}_attr_value[$ofs]}"
+    else
+        echo 1>&2 "Error: list index out of range"
+        unset -v REPLY
+        return 1
+    fi
+}
+list_get_slice () {
+    #accepts slices i:j:k as first arg
+    local ifs=$IFS
+    IFS=:
+    set -- $1
+    i=$1
+    j=$2
+    k=$3
+    IFS=$ifs
+    local var_origin="${self}_attr_origin"
+    local origin=${!var_origin}
+    local var_end="${self}_attr_end"
+    local end=${!var_end}
+    [ -z "$k" ] && k=1
+    if (( k > 0 )); then
+        [ -z "$i" ] && i=0
+        [ -z "$j" ] && (( j=end-origin ))
+    elif (( k < 0 )); then
+        [ -z "$i" ] && (( i=end-origin-1 ))
+        [ -z "$j" ] && j=0
+    else
+        echo 1>&2 "Error: slice step cannot be zero"
+        unset -v REPLY
+        return 1
+    fi
+    #offset i and j
+    (( i=i+origin ))
+    (( j=j+origin ))
+    local n=0
+    new list            #new list to return
+    ret=${REPLY#* }     #get base varname
+    if (( k > 0 )); then
+        while (( i < j )); do
+            #we directly set the array values for performance
+            eval "${ret}_attr_value[$n]=\${${self}_attr_value[$i]}"
+            echo "${ret}_attr_value[$n]=\${${self}_attr_value[$i]}"
+            (( i=i+k ))
+            (( n=n+1 ))
+        done
+    else
+        #reverse step
+        while (( i > j )); do
+            #we directly set the array values for performance
+            eval "${ret}_attr_value[$n]=\${${self}_attr_value[$i]}"
+            (( i=i+k ))
+            (( n=n+1 ))
+        done
+    fi
+    eval "${ret}_attr_end=$n"
+    #REPLY was set by 'new list'
+}
+list_get () {
+    case $1 in
+        *:*)
+            list_get_slice "$@"
+            ;;
+        *)
+            list_get_single "$@"
+            ;;
+    esac
+}
 list_value () {
     eval REPLY="(\"\${${self}_attr_value[@]}\")"
+}
+list_print () {
+    #XXX - this could be better
+    eval "printf '%s\n' \"\${${self}_attr_value[*]}\""
 }
 list_repr () {
     eval "declare -p ${self}_attr_value"
@@ -240,6 +326,8 @@ setmethod list length 'list_length'
 setmethod list append 'list_append'
 setmethod list pop 'list_pop'
 setmethod list shift 'list_shift'
+setmethod list get 'list_get'
+setmethod list print 'list_print'
 setmethod list value 'list_value'
 setmethod list repr 'list_repr'
 
@@ -253,6 +341,12 @@ $x print
 
 new list "one (or 1)" "two (or 2)" "three (or 3)"
 y=$REPLY
-$y repr
+$y print
 
+$y get '::-1'
+z=$REPLY
+$z print
 
+$y get '1:-1'
+z=$REPLY
+$z print
