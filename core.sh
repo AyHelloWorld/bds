@@ -270,6 +270,8 @@ list_get_slice () {
     elif (( k < 0 )); then
         [ -z "$i" ] && (( i=end-origin-1 ))
         [ -z "$j" ] && j=0
+        #ugh this seems tricky, note the asymmetry
+        #also note the while i>=j for this case below
     else
         echo 1>&2 "Error: slice step cannot be zero"
         unset -v REPLY
