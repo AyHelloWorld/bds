@@ -291,7 +291,7 @@ list_get_slice () {
         done
     else
         #reverse step
-        while (( i > j )); do
+        while (( i >= j )); do
             #we directly set the array values for performance
             eval "${ret}_attr_value[$n]=\${${self}_attr_value[$i]}"
             (( i=i+k ))
