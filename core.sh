@@ -101,13 +101,17 @@ callobject () {
     local methodname=$2
     shift
     shift
+    local _temp_funcname=''
     # read class
     local _temp_varname="${self}_class"
-    local _temp_funcname=''
-    classname=${!_temp_varname}
+    local classname=${!_temp_varname}
     # search inheritance chain for method
     while true; do
-        _temp_varname=__bdsm_class_${classname}_method_${methodname}
+        _temp_varname=__bdsm_class_${classname}_method___${methodname}
+        #XXX - potential name collisions
+        #   __bdsm_class_foo_method___method___bar could refer to:
+        #       method bar for class foo_method__
+        #       method method___bar for class foo
         if assigned $_temp_varname; then
             _temp_funcname=${!_temp_varname}
             if [ -z "$_temp_funcname" ]; then
@@ -119,7 +123,7 @@ callobject () {
             return
         fi
         #else try parent
-        _temp_varname=__bdsm_class_${class}_parent
+        _temp_varname=__bdsm_class_${classname}_parent
         if ! assigned $_temp_varname; then
             echo 1>&2 "Error: Method not implemented: $methodname (object $self)"
             unset -v REPLY
@@ -133,7 +137,7 @@ setmethod () {
     #class=$1
     #method=$2
     #expression=$3
-    eval "__bdsm_class_${1}_method_${2}=\$3"
+    eval "__bdsm_class_${1}_method___${2}=\$3"
     unset -v REPLY
 }
 
@@ -151,11 +155,9 @@ new () {
     local self=$REPLY
     eval "${self}_class=\$class"
     if callobject "$self" init "$@"; then
-        #if call succeeds return object
-        REPLY="callobject $self"
-        #the idea here is that the return value can be used
-        #like a command with the methodname as the first arg
-        #see examples later
+        #if call succeeds, declare access function and return object
+        eval "function $self () { callobject $self \"\$@\"; }"
+        REPLY="$self"
     fi
     #(otherwise we let callobject's return propagate)
 }
@@ -349,13 +351,56 @@ setmethod list repr 'list_repr'
 setparent dict object
 # storage
 #   for each key, the corresponding value is stored:
-#     ${self}_bin_${hash}[$n]
+#     ${self}_keys_${hash}[$n]
+#     ${self}_values_${hash}[$n]
 dict_init () {
     #value is a bash array
     eval "${self}_attr_value"='("$@")'
     eval "${self}_attr_origin=0"
     eval "${self}_attr_end=$#"
 }
+dict_get () {
+    # $1 = key
+    local hash=${1%%[!a-zA-Z0-9_]}
+    #search for key in bin
+    local keyarray="${self}_keys_${hash}"
+    local len key
+    eval "len=\${#$keyarray[@]}"
+    for ((i=0; i<len; i=i+1)); do
+        eval "key=\${$keyarray[$i]}"
+        if [ ".$key" = ".$1" ]; then
+            eval "REPLY=\${${self}_values_${hash}[$i]}"
+            return
+        fi
+    done
+    #don't got it
+    unset -v REPLY
+    return 1
+}
+dict_set () {
+    # $1 = key
+    # $2 = value
+    local hash=${1%%[!a-zA-Z0-9_]}
+    #search for key in bin
+    local keyarray="${self}_keys_${hash}"
+    local len key
+    #look to see if we already have this key
+    eval "len=\${#$keyarray[@]}"
+    for ((i=0; i<len; i=i+1)); do
+        eval "key=\${$keyarray[$i]}"
+        if [ ".$key" = ".$1" ]; then
+            eval "${self}_values_${hash}[$i]=\$2"
+            unset -v REPLY
+            return
+        fi
+    done
+    #new key
+    eval "${self}_keys_${hash}[$len]=\$1"
+    eval "${self}_values_${hash}[$len]=\$2"
+    unset -v REPLY
+}
+setmethod dict get 'dict_get'
+setmethod dict set 'dict_set'
 
 
 
