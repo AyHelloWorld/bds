@@ -278,8 +278,20 @@ list_get_slice () {
         return 1
     fi
     #offset i and j
-    (( i=i+origin ))
-    (( j=j+origin ))
+    if (( i >= 0 )); then
+        (( i=i+origin ))
+        (( i > end )) && i=end
+    else
+        (( i=i+end ))
+        (( i < origin )) && i=origin
+    fi
+    if (( j >= 0 )); then
+        (( j=j+origin ))
+        (( j > end )) && j=end
+    else
+        (( j=j+end ))
+        (( j < origin )) && j=origin
+    fi
     local n=0
     new list            #new list to return
     ret=${REPLY#* }     #get base varname
@@ -287,7 +299,6 @@ list_get_slice () {
         while (( i < j )); do
             #we directly set the array values for performance
             eval "${ret}_attr_value[$n]=\${${self}_attr_value[$i]}"
-            echo "${ret}_attr_value[$n]=\${${self}_attr_value[$i]}"
             (( i=i+k ))
             (( n=n+1 ))
         done
