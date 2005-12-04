@@ -255,9 +255,9 @@ list_get_slice () {
     local ifs=$IFS
     IFS=:
     set -- $1
-    i=$1
-    j=$2
-    k=$3
+    local i=$1
+    local j=$2
+    local k=$3
     IFS=$ifs
     local var_origin="${self}_attr_origin"
     local origin=${!var_origin}
@@ -294,7 +294,7 @@ list_get_slice () {
     fi
     local n=0
     new list            #new list to return
-    ret=${REPLY#* }     #get base varname
+    local ret=${REPLY#* }     #get base varname
     if (( k > 0 )); then
         while (( i < j )); do
             #we directly set the array values for performance
@@ -345,6 +345,20 @@ setmethod list value 'list_value'
 setmethod list repr 'list_repr'
 
 
+## class dict
+setparent dict object
+# storage
+#   for each key, the corresponding value is stored:
+#     ${self}_bin_${hash}[$n]
+dict_init () {
+    #value is a bash array
+    eval "${self}_attr_value"='("$@")'
+    eval "${self}_attr_origin=0"
+    eval "${self}_attr_end=$#"
+}
+
+
+
 #demo
 new string "This is a test"
 x=$REPLY
@@ -352,14 +366,18 @@ $x print
 #echo $REPLY
 
 
-new list "one (or 1)" "two (or 2)" "three (or 3)"
+new list $(seq 0 19)
 y=$REPLY
 $y print
 
-$y get '::-1'
+set -- $y get '::-3'
+echo $*
+"$@"
 z=$REPLY
 $z print
 
-$y get '1:-1'
+set -- $y get '5:-5'
+echo $*
+"$@"
 z=$REPLY
 $z print
