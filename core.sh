@@ -154,7 +154,7 @@ new () {
     alloc
     local self=$REPLY
     eval "${self}_class=\$class"
-    if callobject "$self" init "$@"; then
+    if callobject "$self" __init__ "$@"; then
         #if call succeeds, declare access function and return object
         eval "function $self () { callobject $self \"\$@\"; }"
         REPLY="$self"
@@ -162,15 +162,31 @@ new () {
     #(otherwise we let callobject's return propagate)
 }
 
+del () {
+    local self=$1
+    # call objects delete method
+    $self __del__ || return
+    # remove access function
+    unset -f $self
+}
 
 ## class object
+object_del () {
+    local v vars
+    eval "vars=\${!${self}*}"
+    for v in $vars; do
+        unset -v $v
+    done
+    unset -v REPLY
+}
 setmethod object getattr 'getattr $self'
 setmethod object setattr 'setattr $self'
-setmethod object init ":"
+setmethod object __init__ ":"
+setmethod object __del__ "object_del"
 
 ## class string
 setparent string object
-setmethod string init 'setattr $self value'
+setmethod string __init__ 'setattr $self value'
 setmethod string value 'getattr $self value'
 string_print () {
     getattr $self value
@@ -336,7 +352,7 @@ list_print () {
 list_repr () {
     eval "declare -p ${self}_attr_value"
 }
-setmethod list init 'list_init'
+setmethod list __init__ 'list_init'
 setmethod list length 'list_length'
 setmethod list append 'list_append'
 setmethod list pop 'list_pop'
@@ -354,14 +370,12 @@ setparent dict object
 #     ${self}_keys_${hash}[$n]
 #     ${self}_values_${hash}[$n]
 dict_init () {
-    #value is a bash array
-    eval "${self}_attr_value"='("$@")'
-    eval "${self}_attr_origin=0"
-    eval "${self}_attr_end=$#"
+    #XXX - need an init function
+    :
 }
 dict_get () {
     # $1 = key
-    local hash=${1%%[!a-zA-Z0-9_]}
+    local hash=${1%%[!a-zA-Z0-9_]*}
     #search for key in bin
     local keyarray="${self}_keys_${hash}"
     local len key
@@ -380,10 +394,10 @@ dict_get () {
 dict_set () {
     # $1 = key
     # $2 = value
-    local hash=${1%%[!a-zA-Z0-9_]}
+    local hash=${1%%[!a-zA-Z0-9_]*}
     #search for key in bin
     local keyarray="${self}_keys_${hash}"
-    local len key
+    local len key i
     #look to see if we already have this key
     eval "len=\${#$keyarray[@]}"
     for ((i=0; i<len; i=i+1)); do
@@ -399,8 +413,53 @@ dict_set () {
     eval "${self}_values_${hash}[$len]=\$2"
     unset -v REPLY
 }
+dict_del () {
+    # $1 = key
+    # $2 = value
+    unset -v REPLY      # no return value
+    local hash=${1%%[!a-zA-Z0-9_]*}
+    #search for key in bin
+    local keyarray="${self}_keys_${hash}"
+    local len key i
+    #look to see if we already have this key
+    eval "len=\${#$keyarray[@]}"
+    for ((i=0; i<len; i=i+1)); do
+        eval "key=\${$keyarray[$i]}"
+        if [ ".$key" = ".$1" ]; then
+            # XXX - over time, this could lead to very long
+            # sparse arrays, if a key were set and unset
+            # repeatedly.
+            # We should track this and clean up if it gets too
+            # sparse.
+            unset -v "${self}_keys_${hash}[$i]"
+            unset -v "${self}_values_${hash}[$i]"
+            return
+        fi
+    done
+    #don't got it
+    return 1
+}
+dict_print () {
+    unset -v REPLY      # no return value
+    local len bins hash key value i keyarray
+    eval "bins=\${!${self}_keys_*}"
+    #XXX - need to verify that the above expansion is sufficiently
+    #    broadly available.  (Can be worked around by keeping an array
+    #    of hashes used).
+    for keyarray in $bins; do
+        hash=${keyarray#${self}_keys_}
+        eval "len=\${#$keyarray[@]}"
+        for ((i=0; i<len; i=i+1)); do
+            eval "key=\${$keyarray[$i]}"
+            eval "value=\${${self}_values_${hash}[$i]}"
+            printf "%q => %q\n" "$key" "$value"
+        done
+    done
+}
 setmethod dict get 'dict_get'
 setmethod dict set 'dict_set'
+setmethod dict del 'dict_del'
+setmethod dict print 'dict_print'
 
 
 
@@ -415,14 +474,20 @@ new list $(seq 0 19)
 y=$REPLY
 $y print
 
-set -- $y get '::-3'
-echo $*
-"$@"
+$y get '::-3'
 z=$REPLY
 $z print
 
-set -- $y get '5:-5'
-echo $*
-"$@"
+$y get '5:-5'
 z=$REPLY
 $z print
+
+
+
+new dict
+d=$REPLY
+$d set foo bar
+for x in one two 3 "3 3" "3.5" "f o u r" "555 55"; do
+    $d set "$x" "some generic value"
+done
+$d print
